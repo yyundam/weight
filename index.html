@@ -200,6 +200,16 @@ details summary{cursor:pointer;color:var(--sub);font-size:14px;font-weight:600}
 @keyframes ring{0%{box-shadow:0 0 0 0 rgba(79,179,169,.8)}100%{box-shadow:0 0 0 16px rgba(79,179,169,0)}}
 .flyer{position:fixed;z-index:60;font-size:36px;font-weight:800;color:#fff;pointer-events:none;
   text-shadow:0 4px 16px rgba(79,179,169,.7);font-variant-numeric:tabular-nums}
+
+/* 축하 */
+#cf{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:70}
+.okm{font-size:17px;font-weight:700;margin:10px auto 0;line-height:1.4;max-width:240px;text-align:center}
+.okc.emo{background:none;font-size:64px;line-height:84px;animation:pop .5s}
+#ok.rec .okbox{border:2px solid #f5c542;background:linear-gradient(160deg,#2b2a1c,#17212c);box-shadow:0 0 40px rgba(245,197,66,.45);animation:glow 1.2s ease-in-out infinite alternate}
+#ok.rec .okt{color:#f5c542;font-weight:800}
+.rt{white-space:nowrap;font-size:26px;font-weight:900;color:#f5c542;letter-spacing:1px;text-shadow:0 0 18px rgba(245,197,66,.6)}
+@keyframes glow{from{box-shadow:0 0 22px rgba(245,197,66,.3)}to{box-shadow:0 0 54px rgba(245,197,66,.75)}}
+#ok.drop .okbox{border-color:var(--down)}
 </style>
 </head>
 <body>
@@ -216,7 +226,7 @@ details summary{cursor:pointer;color:var(--sub);font-size:14px;font-weight:600}
   <button id="goToday" type="button" hidden></button>
   <div class="entry">
     <button class="step" data-s="-0.1">−</button>
-    <input id="w" type="number" inputmode="decimal" step="0.1" placeholder="00.0" autocomplete="off">
+    <input id="w" type="number" inputmode="decimal" step="any" placeholder="00.0" autocomplete="off">
     <button class="step" data-s="0.1">+</button>
   </div>
   <button id="save">저장</button>
@@ -278,6 +288,7 @@ details summary{cursor:pointer;color:var(--sub);font-size:14px;font-weight:600}
       <div class="row"><label>키 (cm)</label><input id="h" type="number" inputmode="decimal" step="0.1"></div>
       <div class="row"><label>목표 체중 (kg)</label><input id="g" type="number" inputmode="decimal" step="0.1"></div>
       <div class="row"><label>시작 체중 (kg) · 비우면 첫 기록</label><input id="s" type="number" inputmode="decimal" step="0.1"></div>
+      <label class="row" style="margin-top:4px"><span style="flex:1;font-size:14px;color:var(--sub)">효과음 (신기록 팡파르)</span><input id="snd" type="checkbox" style="width:22px;height:22px"></label>
       <div class="btns">
         <button id="exp">백업 파일 저장</button>
         <label>백업 불러오기<input id="imp" type="file" accept=".json,.csv,application/json,text/csv" hidden></label>
@@ -290,12 +301,14 @@ details summary{cursor:pointer;color:var(--sub);font-size:14px;font-weight:600}
   </details>
 </div>
 
+<canvas id="cf"></canvas>
 <div id="ok" aria-live="polite">
   <div class="okbox">
-    <div class="okc"><svg viewBox="0 0 50 50"><path d="M12 26 L22 36 L39 15"/></svg></div>
+    <div class="okc" id="okc"><svg viewBox="0 0 50 50"><path d="M12 26 L22 36 L39 15"/></svg></div>
     <div class="okt" id="okt">저장 완료</div>
     <div class="okw" id="okw"></div>
     <div class="okd" id="okd"></div>
+    <div class="okm" id="okm"></div>
   </div>
 </div>
 
@@ -316,6 +329,12 @@ const parse=s=>{const[a,b,c]=s.split('-').map(Number);return new Date(a,b-1,c)};
 const DAY=864e5;
 const dayDiff=(a,b)=>Math.round((parse(b)-parse(a))/DAY);
 const addDays=(s,n)=>ymd(new Date(parse(s).getTime()+n*DAY));
+// 기록된 체중: 기본 0.1 단위, 0.01 단위로 입력한 값만 소수 둘째 자리까지 표시
+const r2=x=>Math.round(x*100)/100;
+const has2=x=>Math.abs(x*10-Math.round(x*10))>0.0005;
+const fw=x=>x==null||isNaN(x)?'–':(has2(r2(x))?r2(x).toFixed(2):r2(x).toFixed(1));
+const sgnD=x=>{if(x==null||isNaN(x))return '–';const r=r2(x),a=Math.abs(r),t=has2(a)?a.toFixed(2):a.toFixed(1);
+  return (r>0.001?'+':r<-0.001?'−':'±')+t};
 const f1=x=>x==null||isNaN(x)?'–':x.toFixed(1);
 const sgn=x=>x==null||isNaN(x)?'–':(x>0.049?'+':x<-0.049?'−':'±')+Math.abs(x).toFixed(1);
 const cls=x=>x>0.05?'up':x<-0.05?'down':'';
@@ -357,14 +376,14 @@ function calcSlope(rows){
 /* ---------- 입력 카드 ---------- */
 function fillInput(){
   const d=$('d').value;
-  if(data[d]!=null)$('w').value=data[d].toFixed(1);
-  else{const p=prevBefore(d);$('w').value=p!=null?p.toFixed(1):''}
+  if(data[d]!=null)$('w').value=fw(data[d]);
+  else{const p=prevBefore(d);$('w').value=p!=null?fw(p):''}
   updateEntry();renderStrip();
 }
 let saveBusy=false, flyPending=false;
 function updateEntry(){
   const d=$('d').value||today(), v=parseFloat($('w').value), s=data[d];
-  const same=s!=null&&!isNaN(v)&&Math.abs(v-s)<0.05;
+  const same=s!=null&&!isNaN(v)&&Math.abs(v-s)<0.005;
   const isT=d===today();
   $('title').textContent=isT?(s!=null?'오늘 체중':'오늘 체중 기록하세요!'):titleFor(d)+' 체중';
   $('title').classList.toggle('prompt',isT&&s==null);
@@ -387,8 +406,8 @@ function renderStrip(){
     const d=addDays(sel,k), w=data[d], p=prevBefore(d), isSel=k===0, isT=d===today();
     let v,s,todo='';
     if(w!=null){
-      v=`<div class="v${isSel&&flyPending?' pend':''}">${f1(w)}</div>`;
-      s=p!=null?`<div class="s ${cls(w-p)}">${sgn(w-p)}</div>`:`<div class="s mute">첫 기록</div>`;
+      v=`<div class="v${isSel&&flyPending?' pend':''}">${fw(w)}</div>`;
+      s=p!=null?`<div class="s ${cls(w-p)}">${sgnD(w-p)}</div>`:`<div class="s mute">첫 기록</div>`;
     }else if(isSel){
       todo=' todo';
       v=`<div class="v todoTxt">입력 전</div>`;
@@ -467,7 +486,7 @@ function renderMarathon(){
     const days=(mLast-target)/-slope;
     return days>730?`<b class="na">2년 이상 뒤</b>`:`<b>${dateStr(addDays(last.d,Math.round(days)))}</b>`;
   };
-  box.innerHTML=`<div class="mh"><div><b>${v.toFixed(1)}</b><small>${H} − ${w.toFixed(1)}</small></div><span style="color:${st.c}">${st.t}</span></div>
+  box.innerHTML=`<div class="mh"><div><b>${v.toFixed(1)}</b><small>${H} − ${fw(w)}</small></div><span style="color:${st.c}">${st.t}</span></div>
     <div class="bmiwrap"><div class="mk" style="left:${pos(v)}%"></div><div class="bmibar">${seg}</div></div>
     <div class="bticks"><span style="left:40%">100</span><span style="left:70%">110</span></div>
     <div class="eta"><div class="er"><span>100 달성 예상</span>${eta(t100)}</div>
@@ -485,10 +504,10 @@ function renderBmi(){
   if(!rows.length){box.innerHTML='<div class="empty">첫 체중을 입력하면 BMI가 나와요</div>';return}
   const h=settings.h/100, w=rows[rows.length-1].w, bmi=w/(h*h);
   const z=ZONES.find(z=>bmi<z.b)||ZONES[3];
-  const seg=ZONES.map(z=>`<i style="flex:${z.w};background:${z.c}">${z.n}</i>`).join('');
+  const seg=ZONES.slice().reverse().map(z=>`<i style="flex:${z.w};background:${z.c}">${z.n}</i>`).join('');
   box.innerHTML=`<div class="bh"><div class="bl"><b>${bmi.toFixed(1)}</b><span class="zn" style="color:${z.c}">${z.n}</span></div><span class="std">대한비만학회 기준</span></div>
-    <div class="bmiwrap"><div class="mk" style="left:${bmiPos(bmi)}%"></div><div class="bmibar">${seg}</div></div>
-    <div class="bticks"><span style="left:20%">18.5</span><span style="left:48%">23</span><span style="left:70%">25</span></div>`;
+    <div class="bmiwrap"><div class="mk" style="left:${100-bmiPos(bmi)}%"></div><div class="bmibar">${seg}</div></div>
+    <div class="bticks"><span style="left:30%">25</span><span style="left:52%">23</span><span style="left:80%">18.5</span></div>`;
 }
 
 /* ---------- 그래프 ---------- */
@@ -542,7 +561,7 @@ function renderChart(){
   // 오늘 강조: 라벨은 그래프 위쪽 빈 띠에 두고 점선으로 오늘 지점에 연결 (그래프 선을 가리지 않음)
   if(dayDiff(start,tdy)>=0&&dayDiff(tdy,end)>=0){
     const tx=X(tdy), has=data[tdy]!=null, col=has?'#4fb3a9':'#e0a95b';
-    const lb=has?`오늘 ${f1(data[tdy])} kg`:'오늘 미입력';
+    const lb=has?`오늘 ${fw(data[tdy])} kg`:'오늘 미입력';
     x.font='bold 12px sans-serif';x.textBaseline='middle';
     const lw=x.measureText(lb).width+16, ly=13;
     const lx=Math.min(Math.max(tx-lw/2,L),W-4-lw);
@@ -566,23 +585,71 @@ function renderList(){
   const W=['일','월','화','수','목','금','토'];
   $('list').innerHTML=rows.slice(0,listN).map((r,i)=>{
     const p=rows[i+1],dd=p?r.w-p.w:null,dt=parse(r.d);
-    return `<tr><td>${dt.getMonth()+1}/${dt.getDate()} (${W[dt.getDay()]})</td><td><b>${f1(r.w)}</b></td>
-      <td class="${cls(dd)}">${dd==null?'':sgn(dd)}</td><td class="del"><button data-del="${r.d}" aria-label="삭제">✕</button></td></tr>`}).join('');
+    return `<tr><td>${dt.getMonth()+1}/${dt.getDate()} (${W[dt.getDay()]})</td><td><b>${fw(r.w)}</b></td>
+      <td class="${cls(dd)}">${dd==null?'':sgnD(dd)}</td><td class="del"><button data-del="${r.d}" aria-label="삭제">✕</button></td></tr>`}).join('');
   $('more').style.display=rows.length>listN?'':'none';
 }
 
 function renderAll(){updateEntry();renderStrip();renderTrend();renderGoal();renderMarathon();renderBmi();renderChart();renderList()}
 
 /* ---------- 저장 피드백 ---------- */
+const MSG={
+  rec:['신기록입니다! 역대 최저 체중이에요 🏆','새 역사를 썼어요! 대단해요!!','와… 이 숫자는 처음 보는 숫자예요!','마라톤 완주에 한 발 더! 신기록!'],
+  big:['와우!! 이렇게나 떨어졌어요? 🔥','대박! 확 내려갔어요!','어제의 노력이 숫자로 나왔어요 👏','쑥 내려갔네요! 멋져요!'],
+  mid:['오, 내려갔어요! 👍','좋아요, 잘 가고 있어요!','한 걸음 더 가벼워졌어요 🏃','꾸준함이 빛을 발해요!'],
+  small:['조금씩, 확실히 내려가는 중!','살짝 내려갔어요, 좋은 흐름!','작은 하락도 하락이에요 😉','0.1도 쌓이면 큽니다!'],
+  same:['어제와 같아요. 유지도 실력이에요!','변화 없음! 안정적이에요.','꾸준히 기록하는 게 제일 중요해요!'],
+  up:['하루 이틀 오르내리는 건 자연스러워요.','추세가 중요해요. 기록한 게 이미 잘한 거예요!','수분·염분 때문에 오르내려요. 괜찮아요!'],
+};
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+let AC=null;
+function getAC(){try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume();return AC}catch(e){return null}}
+function fanfare(){
+  if(!settings.snd)return;const c=getAC();if(!c)return;
+  const seq=[[523,0,.13],[523,.14,.13],[523,.28,.13],[659,.42,.2],[523,.66,.12],[659,.8,.12],[784,.94,.7]];
+  seq.forEach(([f,t,dur])=>{
+    const o=c.createOscillator(),g=c.createGain();o.type='square';o.frequency.value=f;
+    const t0=c.currentTime+t;g.gain.setValueAtTime(0,t0);g.gain.linearRampToValueAtTime(.12,t0+.02);
+    g.gain.exponentialRampToValueAtTime(.001,t0+dur);o.connect(g);g.connect(c.destination);o.start(t0);o.stop(t0+dur+.05);
+  });
+}
+let cfRaf=0;
+function confetti(n,ms){
+  const cv=$('cf'),dpr=window.devicePixelRatio||1,W=innerWidth,H=innerHeight;
+  cv.width=W*dpr;cv.height=H*dpr;const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);
+  const cols=['#f5c542','#4fb3a9','#e07a6b','#5b9bd5','#a78bfa','#fff','#5fb98a'];
+  const P=Array.from({length:n},()=>({x:W/2+(Math.random()-.5)*60,y:H*.42,vx:(Math.random()-.5)*14,vy:-Math.random()*13-4,
+    s:5+Math.random()*7,r:Math.random()*6,vr:(Math.random()-.5)*.5,c:cols[Math.floor(Math.random()*cols.length)]}));
+  const t0=performance.now();cancelAnimationFrame(cfRaf);
+  (function f(t){
+    const k=t-t0;x.clearRect(0,0,W,H);
+    P.forEach(p=>{p.vy+=.35;p.x+=p.vx;p.y+=p.vy;p.vx*=.992;p.r+=p.vr;
+      x.save();x.globalAlpha=Math.max(0,1-k/ms);x.translate(p.x,p.y);x.rotate(p.r);x.fillStyle=p.c;x.fillRect(-p.s/2,-p.s/4,p.s,p.s/2);x.restore()});
+    if(k<ms)cfRaf=requestAnimationFrame(f);else x.clearRect(0,0,W,H);
+  })(t0);
+}
 function celebrate(w,prev,d){
-  $('okt').textContent=`${titleFor(d)} 체중 저장 완료`;
-  $('okw').textContent=w.toFixed(1)+' kg';
-  const diff=prev!=null?w-prev:null;
+  const ok=$('ok'),okc=$('okc');
+  const others=Object.keys(data).filter(k=>k!==d).map(k=>data[k]);
+  const isRec=others.length>=3&&w<Math.min(...others)-0.0001;
+  const diff=prev!=null?r2(w-prev):null;
+  let kind=isRec?'rec':diff==null?'':diff<=-0.8?'big':diff<=-0.3?'mid':diff<-0.001?'small':diff>0.001?'up':'same';
+  $('okt').textContent=isRec?'🎊 NEW RECORD 🎊':`${titleFor(d)} 체중 저장 완료`;
+  $('okw').textContent=fw(w)+' kg';
   const el=$('okd');
-  el.textContent=diff==null?'첫 기록이에요':`이전 기록보다 ${sgn(diff)} kg`;
+  el.textContent=diff==null?'첫 기록이에요':`이전 기록보다 ${sgnD(diff)} kg`;
   el.className='okd '+(diff==null?'':cls(diff));
-  const ok=$('ok');ok.classList.add('show');
-  clearTimeout(celebrate.t);celebrate.t=setTimeout(()=>ok.classList.remove('show'),2800);
+  $('okm').textContent=kind?pick(MSG[kind]):'';
+  ok.className='';okc.className='okc';
+  if(isRec){ok.classList.add('rec');okc.className='okc emo';okc.textContent='🏆';$('okt').className='okt rt';}
+  else if(kind==='big'||kind==='mid'||kind==='small'){ok.classList.add('drop');
+    okc.className='okc emo';okc.textContent=kind==='big'?'🔥':kind==='mid'?'👏':'👍';$('okt').className='okt';}
+  else{okc.className='okc';okc.innerHTML='<svg viewBox="0 0 50 50"><path d="M12 26 L22 36 L39 15"/></svg>';$('okt').className='okt'}
+  ok.classList.add('show');
+  try{if(navigator.vibrate)navigator.vibrate(isRec?[60,50,60,50,60,50,260]:kind==='big'?[50,50,120]:[40,60,90])}catch(e){}
+  if(isRec){confetti(190,3600);fanfare()}
+  else if(kind==='big')confetti(70,2400);
+  clearTimeout(celebrate.t);celebrate.t=setTimeout(()=>ok.classList.remove('show'),isRec?5200:kind==='big'?3600:2800);
 }
 function flash(t){$('msg').textContent=t;clearTimeout(flash.t);flash.t=setTimeout(()=>$('msg').textContent='',2500)}
 
@@ -604,15 +671,17 @@ $('d').onchange=()=>{
 };
 $('goToday').onclick=()=>{userPicked=false;$('d').value=today();fillInput();$('w').focus()};
 document.querySelectorAll('.step').forEach(b=>b.onclick=()=>{
-  const v=parseFloat($('w').value)||0;$('w').value=Math.max(0,v+parseFloat(b.dataset.s)).toFixed(1);updateEntry()});
+  const v=parseFloat($('w').value)||0;$('w').value=fw(Math.max(0,v+parseFloat(b.dataset.s)));updateEntry()});
 $('w').addEventListener('input',updateEntry);
 $('save').onclick=()=>{
   const v=parseFloat($('w').value),d=$('d').value;
   if(!(v>20&&v<300)){flash('체중을 확인해 주세요');return}
   if(!d){flash('날짜를 선택해 주세요');return}
   const prev=prevBefore(d), r0=$('w').getBoundingClientRect();
-  data[d]=Math.round(v*10)/10;persist();
-  try{if(navigator.vibrate)navigator.vibrate([40,60,90])}catch(e){}
+  data[d]=r2(v);persist();
+  try{if(navigator.vibrate)navigator.vibrate(40)}catch(e){}
+  if(settings.snd)getAC();
+  $('w').value=fw(data[d]);
   saveBusy=true;const sb=$('save');sb.textContent='✓ 저장 완료';sb.classList.remove('quiet');sb.classList.add('done');
   setTimeout(()=>{saveBusy=false;sb.classList.remove('done');updateEntry()},3400);
   flyPending=true;renderAll();$('w').blur();
@@ -632,7 +701,7 @@ function flyToToday(r0,val,done){
   if(!tv||!r0||!tv.animate){fin();return}
   const r1=tv.getBoundingClientRect();
   if(r1.bottom<0||r1.top>innerHeight){fin();return}              // 칸이 화면 밖이면 생략
-  const f=document.createElement('div');f.className='flyer';f.textContent=val.toFixed(1);document.body.appendChild(f);
+  const f=document.createElement('div');f.className='flyer';f.textContent=fw(val);document.body.appendChild(f);
   const sx=r0.left+r0.width/2, sy=r0.top+r0.height/2, tx=r1.left+r1.width/2, ty=r1.top+r1.height/2;
   f.style.left=sx+'px';f.style.top=sy+'px';
   const a=f.animate([
@@ -647,11 +716,12 @@ $('ok').onclick=()=>$('ok').classList.remove('show');
 $('tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;
   document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x===b));range=+b.dataset.r;renderChart()};
 $('list').onclick=e=>{const d=e.target.dataset.del;if(!d)return;
-  if(confirm(`${d} 기록(${f1(data[d])} kg)을 삭제할까요?`)){delete data[d];persist();renderAll();fillInput()}};
+  if(confirm(`${d} 기록(${fw(data[d])} kg)을 삭제할까요?`)){delete data[d];persist();renderAll();fillInput()}};
 $('more').onclick=()=>{listN+=30;renderList()};
 
 function syncSettingsInputs(){$('h').value=settings.h||'';$('g').value=settings.g||'';$('s').value=settings.s||''}
 syncSettingsInputs();
+$('snd').checked=!!settings.snd;$('snd').onchange=()=>{settings.snd=$('snd').checked;persistS();if(settings.snd){getAC();fanfare()}};
 ['h','g','s'].forEach(k=>$(k).onchange=()=>{settings[k]=parseFloat($(k).value)||null;persistS();renderAll()});
 document.addEventListener('click',e=>{
   const k=e.target.dataset&&e.target.dataset.hint;if(!k)return;
