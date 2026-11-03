@@ -45,6 +45,11 @@ h2{font-size:14px;color:var(--sub);font-weight:600;margin:0 0 10px}
 #goToday{display:block;width:100%;margin:0 0 12px;padding:12px;border-radius:12px;border:1px solid var(--accent2);
   background:rgba(224,169,91,.14);color:var(--accent2);font-size:15px;font-weight:700}
 #goToday[hidden]{display:none}
+.saverow{display:flex;gap:8px;margin-top:12px}
+.saverow #save{margin-top:0;flex:1.35}
+#ow{flex:1;height:56px;border-radius:12px;border:2px solid var(--accent);background:transparent;color:var(--accent);font-size:18px;font-weight:700}
+#ow:active{background:rgba(79,179,169,.15)}
+#ow[hidden]{display:none}
 #msg{text-align:center;font-size:13px;color:var(--accent2);min-height:18px;margin-top:8px}
 
 /* 저장 완료 연출 */
@@ -210,6 +215,12 @@ details summary{cursor:pointer;color:var(--sub);font-size:14px;font-weight:600}
 .rt{white-space:nowrap;font-size:26px;font-weight:900;color:#f5c542;letter-spacing:1px;text-shadow:0 0 18px rgba(245,197,66,.6)}
 @keyframes glow{from{box-shadow:0 0 22px rgba(245,197,66,.3)}to{box-shadow:0 0 54px rgba(245,197,66,.75)}}
 #ok.drop .okbox{border-color:var(--down)}
+
+.lhint{font-size:12px;color:var(--sub);margin:-4px 0 8px}
+tr.sub td{font-size:13px;color:var(--sub);padding:5px 4px;border-bottom:1px dashed var(--line)}
+tr.sub td:first-child{padding-left:16px}
+tr.sub td span{color:var(--text);font-weight:600}
+[data-ed]{cursor:pointer}
 </style>
 </head>
 <body>
@@ -229,7 +240,7 @@ details summary{cursor:pointer;color:var(--sub);font-size:14px;font-weight:600}
     <input id="w" type="number" inputmode="decimal" step="any" placeholder="00.0" autocomplete="off">
     <button class="step" data-s="0.1">+</button>
   </div>
-  <button id="save">저장</button>
+  <div class="saverow"><button id="ow" type="button" hidden>수정</button><button id="save">저장</button></div>
   <div id="msg"></div>
 </div>
 
@@ -277,6 +288,7 @@ details summary{cursor:pointer;color:var(--sub);font-size:14px;font-weight:600}
 
 <div class="card">
   <h2>기록</h2>
+  <div class="lhint">체중 숫자를 누르면 수정 · ✕는 삭제</div>
   <table id="list"></table>
   <button class="more" id="more" style="display:none">더 보기</button>
 </div>
@@ -313,13 +325,14 @@ details summary{cursor:pointer;color:var(--sub);font-size:14px;font-weight:600}
 </div>
 
 <script>
-const KEY='weightlog.v1', SKEY='weightlog.settings.v1';
+const KEY='weightlog.v1', SKEY='weightlog.settings.v1', EKEY='weightlog.entries.v1';
 const $=id=>document.getElementById(id);
-let data=load(), settings=loadS(), range=30, listN=14, lastToday='';
+let data=load(), entries=loadE(), settings=loadS(), range=30, listN=14, lastToday='';
 
 function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return {}}}
+function loadE(){try{return JSON.parse(localStorage.getItem(EKEY))||{}}catch(e){return {}}}
 function loadS(){try{return JSON.parse(localStorage.getItem(SKEY))||{}}catch(e){return {}}}
-function persist(){try{localStorage.setItem(KEY,JSON.stringify(data))}catch(e){alert('저장 실패: '+e.message)}}
+function persist(){try{localStorage.setItem(KEY,JSON.stringify(data));localStorage.setItem(EKEY,JSON.stringify(entries))}catch(e){alert('저장 실패: '+e.message)}}
 function persistS(){try{localStorage.setItem(SKEY,JSON.stringify(settings))}catch(e){}}
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
 
@@ -347,6 +360,35 @@ const dateStr=s=>{const y=+s.slice(0,4);return `${y!==new Date().getFullYear()?y
 const fullDate=s=>`${+s.slice(5,7)}월 ${+s.slice(8)}일 (${WK[parse(s).getDay()]})`;
 function titleFor(s){const n=dayDiff(s,today());return n===0?'오늘':n===1?'어제':n===2?'그저께':`${+s.slice(5,7)}월 ${+s.slice(8)}일`}
 
+// data[날짜] = 그날의 대표값(= 가장 마지막 측정). entries[날짜] = 하루 안의 모든 측정 [{ts,w}] (ts 없음 = 시각 미상, 맨 앞)
+function recompute(d){const e=entries[d];if(e&&e.length){e.sort((a,b)=>(a.ts??-1)-(b.ts??-1));data[d]=e[e.length-1].w}else delete entries[d]}
+function allValues(skip){const o=[];for(const d of Object.keys(data)){if(d===skip)continue;const e=entries[d];if(e&&e.length)e.forEach(x=>o.push(x.w));else o.push(data[d])}return o}
+const fmtT=ts=>{if(!ts)return '시각 없음';const t=new Date(ts),h=t.getHours();return `${h<12?'오전':'오후'} ${h%12||12}:${pad(t.getMinutes())}`};
+function applySave(v,d,mode){            // mode: 'add'(오늘 추가 기록) | 'edit'(대표값 수정)
+  v=r2(v);const t=today(),now=Date.now(),res={prev:null,others:null};
+  if(d===t){
+    res.others=allValues(null);const ex=entries[d];
+    if(data[d]!=null){
+      const lastE=ex&&ex[ex.length-1];
+      if(mode==='edit'){                                   // 마지막(대표) 기록을 이 값으로 고침
+        if(!ex){res.others=allValues(d);res.prev=prevBefore(d);data[d]=v;return res}
+        const i=res.others.indexOf(lastE.w);if(i>-1)res.others.splice(i,1);
+        res.prev=ex.length>1?ex[ex.length-2].w:prevBefore(d);
+        lastE.w=v;
+      }else{
+        res.prev=data[d];
+        if(!ex)entries[d]=[{ts:null,w:data[d]}];
+        entries[d].push({ts:now,w:v});
+      }
+    }else{entries[d]=[{ts:now,w:v}];res.prev=prevBefore(d)}
+    recompute(d);
+  }else{                                                  // 과거 날짜: 그날 값을 수정(덮어쓰기)
+    res.others=allValues(d);res.prev=prevBefore(d);
+    const ex=entries[d];
+    if(ex&&ex.length){ex[ex.length-1].w=v;recompute(d)}else data[d]=v;
+  }
+  return res;
+}
 function sorted(){return Object.keys(data).sort().map(d=>({d,w:data[d]}))}
 function prevBefore(date){let v=null;for(const r of sorted()){if(r.d<date)v=r.w;else break}return v}
 function recAtOrBefore(rows,date){let v=null;for(const r of rows){if(r.d<=date)v=r;else break}return v}
@@ -388,11 +430,12 @@ function updateEntry(){
   $('title').textContent=isT?(s!=null?'오늘 체중':'오늘 체중 기록하세요!'):titleFor(d)+' 체중';
   $('title').classList.toggle('prompt',isT&&s==null);
   $('dline').innerHTML=`${fullDate(d)}<em class="${isT?'tp':'tn'}">${isT?'오늘':'오늘 아님'}</em>`;
-  const b=$('badge');
-  if(same){b.textContent=`✓ ${titleFor(d)} 기록 저장됨`;b.className='badge ok'}
-  else if(s!=null){b.textContent='값이 바뀌었어요 · 저장을 눌러야 반영돼요';b.className='badge warn'}
+  const b=$('badge'), n=(entries[d]||[]).length;
+  if(same){b.textContent=`✓ ${titleFor(d)} 기록 저장됨${n>1?` · ${n}회`:''}`;b.className='badge ok'}
+  else if(s!=null){b.textContent=isT?'저장된 값과 달라요 · 수정 또는 추가를 누르세요':'값이 바뀌었어요 · 저장을 눌러야 반영돼요';b.className='badge warn'}
   else{b.textContent=`${titleFor(d)} 기록 아직 저장 안 됨`;b.className='badge warn'}
-  if(!saveBusy){$('save').textContent=s!=null?'수정 저장':'저장';$('save').classList.toggle('quiet',same)}
+  if(!saveBusy){$('save').textContent=s!=null?(isT?'추가':'수정 저장'):'저장';$('save').classList.toggle('quiet',same&&!isT)}
+  $('ow').hidden=!(isT&&s!=null);
   // 보고 있는 날짜가 오늘이 아니면 '오늘 기록하기' 버튼을 맨 위에 띄움
   const g=$('goToday'), t=today();
   if(d!==t){g.hidden=false;g.textContent=`오늘(${md(t)}) 기록하러 가기 ›`}
@@ -584,9 +627,14 @@ function renderList(){
   if(!rows.length){$('list').innerHTML='<tr><td class="empty">아직 기록이 없어요</td></tr>';$('more').style.display='none';return}
   const W=['일','월','화','수','목','금','토'];
   $('list').innerHTML=rows.slice(0,listN).map((r,i)=>{
-    const p=rows[i+1],dd=p?r.w-p.w:null,dt=parse(r.d);
-    return `<tr><td>${dt.getMonth()+1}/${dt.getDate()} (${W[dt.getDay()]})</td><td><b>${fw(r.w)}</b></td>
-      <td class="${cls(dd)}">${dd==null?'':sgnD(dd)}</td><td class="del"><button data-del="${r.d}" aria-label="삭제">✕</button></td></tr>`}).join('');
+    const p=rows[i+1],dd=p?r.w-p.w:null,dt=parse(r.d),ex=entries[r.d],multi=ex&&ex.length>1;
+    let h=`<tr><td>${dt.getMonth()+1}/${dt.getDate()} (${W[dt.getDay()]})</td><td><b data-ed="${r.d}|L">${fw(r.w)}</b></td>
+      <td class="${cls(dd)}">${dd==null?'':sgnD(dd)}</td><td class="del"><button data-del="${r.d}" aria-label="삭제">✕</button></td></tr>`;
+    if(multi)h+=ex.map((x,j)=>{const de=j>0?x.w-ex[j-1].w:null;
+      return `<tr class="sub"><td>↳ ${fmtT(x.ts)}</td><td><span data-ed="${r.d}|${j}">${fw(x.w)}</span></td>
+        <td class="${de==null?'':cls(de)}">${de==null?'':sgnD(de)}</td><td class="del"><button data-delent="${r.d}|${j}" aria-label="이 기록 삭제">✕</button></td></tr>`}).join('');
+    return h;
+  }).join('');
   $('more').style.display=rows.length>listN?'':'none';
 }
 
@@ -628,9 +676,8 @@ function confetti(n,ms){
     if(k<ms)cfRaf=requestAnimationFrame(f);else x.clearRect(0,0,W,H);
   })(t0);
 }
-function celebrate(w,prev,d){
+function celebrate(w,prev,d,others){
   const ok=$('ok'),okc=$('okc');
-  const others=Object.keys(data).filter(k=>k!==d).map(k=>data[k]);
   const isRec=others.length>=3&&w<Math.min(...others)-0.0001;
   const diff=prev!=null?r2(w-prev):null;
   let kind=isRec?'rec':diff==null?'':diff<=-0.8?'big':diff<=-0.3?'mid':diff<-0.001?'small':diff>0.001?'up':'same';
@@ -673,12 +720,13 @@ $('goToday').onclick=()=>{userPicked=false;$('d').value=today();fillInput();$('w
 document.querySelectorAll('.step').forEach(b=>b.onclick=()=>{
   const v=parseFloat($('w').value)||0;$('w').value=fw(Math.max(0,v+parseFloat(b.dataset.s)));updateEntry()});
 $('w').addEventListener('input',updateEntry);
-$('save').onclick=()=>{
+function doSave(mode){
+  if(saveBusy)return;                                  // 저장 연출 중 연속 탭 방지
   const v=parseFloat($('w').value),d=$('d').value;
   if(!(v>20&&v<300)){flash('체중을 확인해 주세요');return}
   if(!d){flash('날짜를 선택해 주세요');return}
-  const prev=prevBefore(d), r0=$('w').getBoundingClientRect();
-  data[d]=r2(v);persist();
+  const r0=$('w').getBoundingClientRect();
+  const sv=applySave(v,d,mode), prev=sv.prev;persist();
   try{if(navigator.vibrate)navigator.vibrate(40)}catch(e){}
   if(settings.snd)getAC();
   $('w').value=fw(data[d]);
@@ -692,9 +740,11 @@ $('save').onclick=()=>{
     if(tv){tv.classList.remove('pend');tv.classList.add('stamp')}
     if(cell)cell.classList.add('ring');
     setTimeout(()=>{if(tv)tv.classList.remove('stamp');if(cell)cell.classList.remove('ring')},1000);
-    setTimeout(()=>celebrate(val,prev,d),450);
+    setTimeout(()=>celebrate(val,prev,d,sv.others),450);
   });
-};
+}
+$('save').onclick=()=>doSave('add');
+$('ow').onclick=()=>doSave('edit');
 function flyToToday(r0,val,done){
   let fired=false;const fin=()=>{if(!fired){fired=true;done()}};
   const tv=document.querySelector('.cell.sel .v');
@@ -715,8 +765,21 @@ $('w').addEventListener('keydown',e=>{if(e.key==='Enter')$('save').click()});
 $('ok').onclick=()=>$('ok').classList.remove('show');
 $('tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;
   document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x===b));range=+b.dataset.r;renderChart()};
-$('list').onclick=e=>{const d=e.target.dataset.del;if(!d)return;
-  if(confirm(`${d} 기록(${fw(data[d])} kg)을 삭제할까요?`)){delete data[d];persist();renderAll();fillInput()}};
+$('list').onclick=e=>{
+  const ds=e.target.dataset||{};
+  if(ds.del){const d=ds.del,n=(entries[d]||[]).length;
+    const msg=n>1?`${md(d)} 기록 ${n}개를 모두 삭제할까요?`:`${d} 기록(${fw(data[d])} kg)을 삭제할까요?`;
+    if(confirm(msg)){delete data[d];delete entries[d];persist();renderAll();fillInput()}return}
+  if(ds.delent){const[d,j]=ds.delent.split('|'),i=+j,ex=entries[d];if(!ex||!ex[i])return;
+    if(confirm(`${md(d)} ${fmtT(ex[i].ts)} 기록(${fw(ex[i].w)} kg)을 삭제할까요?`)){
+      ex.splice(i,1);if(!ex.length){delete entries[d];delete data[d]}else recompute(d);persist();renderAll();fillInput()}return}
+  if(ds.ed){const[d,j]=ds.ed.split('|'),ex=entries[d],idx=j==='L'?(ex?ex.length-1:-1):+j,cur=ex?(ex[idx]||{}).w:data[d];
+    if(cur==null)return;
+    const r=prompt(`${md(d)} 체중(kg)을 수정하세요`,fw(cur));if(r==null)return;
+    const v=parseFloat(r);if(!(v>20&&v<300)){alert('체중을 확인해 주세요');return}
+    if(ex)ex[idx].w=r2(v);else data[d]=r2(v);
+    recompute(d);persist();renderAll();fillInput()}
+};
 $('more').onclick=()=>{listN+=30;renderList()};
 
 function syncSettingsInputs(){$('h').value=settings.h||'';$('g').value=settings.g||'';$('s').value=settings.s||''}
@@ -732,18 +795,26 @@ document.addEventListener('click',e=>{
 
 function download(name,text,type){const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
-$('exp').onclick=()=>download(`weight-backup-${today()}.json`,JSON.stringify({version:1,data,settings},null,1),'application/json');
-$('csv').onclick=()=>download(`weight-${today()}.csv`,'date,weight\n'+sorted().map(r=>`${r.d},${r.w}`).join('\n'),'text/csv');
+$('exp').onclick=()=>download(`weight-backup-${today()}.json`,JSON.stringify({version:2,data,entries,settings},null,1),'application/json');
+$('csv').onclick=()=>download(`weight-${today()}.csv`,'date,time,weight\n'+sorted().flatMap(r=>{const ex=entries[r.d];
+  return ex&&ex.length?ex.map(x=>{const t=x.ts?new Date(x.ts):null;return `${r.d},${t?pad(t.getHours())+':'+pad(t.getMinutes()):''},${x.w}`}):[`${r.d},,${r.w}`]}).join('\n'),'text/csv');
 $('imp').onchange=async e=>{
-  const f=e.target.files[0];if(!f)return;const t=await f.text();let inc={},s=null;
+  const f=e.target.files[0];if(!f)return;const t=await f.text();let inc={},incE={},s=null;
+  const okD=k=>/^\d{4}-\d{2}-\d{2}$/.test(k);
   try{
-    if(t.trim().startsWith('{')){const j=JSON.parse(t);inc=j.data||j;s=j.settings||null}
-    else t.split(/\r?\n/).forEach(l=>{const[d,w]=l.split(',');if(/^\d{4}-\d{2}-\d{2}$/.test(d)&&+w>0)inc[d]=+w});
+    if(t.trim().startsWith('{')){const j=JSON.parse(t);inc=j.data||j;incE=j.entries||{};s=j.settings||null}
+    else t.split(/\r?\n/).forEach(l=>{const c=l.split(',').map(x=>x.trim());
+      const d=c[0],tm=c.length>=3?c[1]:'',w=+(c.length>=3?c[2]:c[1]);
+      if(!okD(d)||!(w>0))return;
+      if(c.length>=3&&tm){const ts=new Date(`${d}T${tm}:00`).getTime();(incE[d]=incE[d]||[]).push({ts:isNaN(ts)?null:ts,w})}
+      inc[d]=w});
   }catch(err){alert('파일을 읽지 못했어요');return}
-  const n=Object.keys(inc).filter(k=>/^\d{4}-\d{2}-\d{2}$/.test(k)&&typeof inc[k]==='number').length;
+  for(const d in incE){const a=(incE[d]||[]).filter(x=>x&&typeof x.w==='number').map(x=>({ts:x.ts??null,w:x.w}));
+    if(a.length){incE[d]=a;a.sort((p,q)=>(p.ts??-1)-(q.ts??-1));inc[d]=a[a.length-1].w}else delete incE[d]}
+  const n=Object.keys(inc).filter(k=>okD(k)&&typeof inc[k]==='number').length;
   if(!n){alert('불러올 기록이 없어요');return}
-  if(!confirm(`${n}개 기록을 불러옵니다. 같은 날짜는 백업 값으로 덮어씁니다. 계속할까요?`))return;
-  for(const k in inc)if(/^\d{4}-\d{2}-\d{2}$/.test(k)&&typeof inc[k]==='number')data[k]=inc[k];
+  if(!confirm(`${n}일치 기록을 불러옵니다. 같은 날짜는 백업 값으로 덮어씁니다. 계속할까요?`))return;
+  for(const k in inc)if(okD(k)&&typeof inc[k]==='number'){data[k]=inc[k];if(incE[k])entries[k]=incE[k];else delete entries[k]}
   if(s){settings={...settings,...s};syncSettingsInputs();persistS()}
   persist();fillInput();renderAll();e.target.value='';alert('불러오기 완료');
 };
