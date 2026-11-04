@@ -221,9 +221,29 @@ tr.sub td{font-size:13px;color:var(--sub);padding:5px 4px;border-bottom:1px dash
 tr.sub td:first-child{padding-left:16px}
 tr.sub td span{color:var(--text);font-weight:600}
 [data-ed]{cursor:pointer}
+
+/* 설치 도우미 */
+#inst{position:relative;border:1px solid var(--accent);background:linear-gradient(160deg,#16302f,#17212c)}
+#inst[hidden]{display:none}
+#instX{position:absolute;top:8px;right:8px;width:32px;height:32px;border:0;background:none;color:var(--sub);font-size:18px}
+.it{font-size:17px;font-weight:800;margin-bottom:8px;padding-right:28px}
+.ib{font-size:14px;line-height:1.65;color:var(--text)}
+.ib ol{margin:6px 0 0;padding-left:20px}
+.ib li{margin-bottom:3px}
+.ib em{font-style:normal;font-weight:700;color:var(--accent)}
+.ib .shr{display:inline-block;width:18px;height:18px;vertical-align:-3px;border:1.5px solid var(--text);border-radius:4px;position:relative;margin:0 2px}
+#instGo{width:100%;margin-top:12px;height:50px;border:0;border-radius:12px;background:var(--accent);color:#062420;font-size:17px;font-weight:800}
+#instGo[hidden]{display:none}
 </style>
 </head>
 <body>
+
+<div class="card" id="inst" hidden>
+  <button id="instX" type="button" aria-label="닫기">✕</button>
+  <div class="it" id="instT"></div>
+  <div class="ib" id="instB"></div>
+  <button id="instGo" type="button" hidden>📲 앱으로 설치하기</button>
+</div>
 
 <div class="card">
   <div class="datebar">
@@ -834,6 +854,37 @@ document.querySelector('.legend').addEventListener('click',e=>{
   const b=e.target.closest('.lg');if(!b)return;
   const o=maOn();o[b.dataset.ma]=!o[b.dataset.ma];settings.ma=o;persistS();renderChart();
 });
+
+/* ---------- 설치 도우미: 브라우저로 처음 연 사람에게만 표시 ---------- */
+(function(){
+  const box=$('inst'),T=$('instT'),B=$('instB'),go=$('instGo');
+  const standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+  if(standalone)return;
+  const KEYI='weightlog.installhint';
+  try{const t=+localStorage.getItem(KEYI);if(t&&Date.now()-t<7*864e5)return}catch(e){}
+  const ua=navigator.userAgent, kakao=/KAKAOTALK/i.test(ua), ios=/iPhone|iPad|iPod/i.test(ua)||(/Macintosh/.test(ua)&&navigator.maxTouchPoints>1),
+        android=/Android/i.test(ua), samsung=/SamsungBrowser/i.test(ua), chrome=/Chrome\//.test(ua)&&!samsung&&!/EdgA|OPR/.test(ua);
+  let dp=null;
+  const show=(t,b)=>{T.textContent=t;B.innerHTML=b;box.hidden=false};
+  const SHARE='<span class="shr"></span>';
+  if(kakao){
+    show('📲 먼저 브라우저로 열어 주세요',ios
+      ?'카카오톡 안에서는 설치할 수 없어요.<ol><li>화면 아래(또는 위)의 <em>⋯ / 나침반 모양</em> 버튼을 누르세요</li><li><em>Safari로 열기</em>를 선택하세요</li></ol>'
+      :'카카오톡 안에서는 설치할 수 없어요.<ol><li>오른쪽 위 <em>⋮</em> 버튼을 누르세요</li><li><em>다른 브라우저로 열기</em> → <em>Chrome</em>을 선택하세요</li><li>열리면 <em>⋮ → 설치</em>를 누르면 끝!</li></ol>');
+  }else if(ios){
+    show('📲 홈 화면에 설치하면 앱처럼 써요',`<ol><li>Safari 아래의 공유 버튼 ${SHARE}(네모에 화살표)을 누르세요</li><li>아래로 밀어서 <em>홈 화면에 추가</em>를 누르세요</li><li><em>추가</em>를 누르면 끝! 홈 화면의 아이콘으로 실행하세요</li></ol>`+(/CriOS|FxiOS|EdgiOS/.test(ua)?'<div style="margin-top:6px;color:var(--accent2)">※ Safari에서 열어야 설치돼요</div>':''));
+  }else if(android&&chrome){
+    show('📲 홈 화면에 설치하면 앱처럼 써요','아래 버튼을 누르거나, <em>⋮ → 설치</em>(또는 홈 화면에 추가)를 눌러 주세요.');
+  }else if(android){
+    show('📲 홈 화면에 설치하면 앱처럼 써요',samsung?'메뉴 <em>≡ → 현재 페이지 추가 → 홈 화면</em>을 누르세요.<br>(전체화면 앱으로 쓰려면 <em>Chrome</em>에서 열어 설치하는 걸 권해요)':'브라우저 메뉴에서 <em>홈 화면에 추가</em>(또는 설치)를 눌러 주세요.');
+  }else{
+    show('📲 폰에서 열면 앱으로 설치할 수 있어요','폰 카메라로 QR을 스캔해 열거나, 폰에서 이 주소를 열어 <em>홈 화면에 추가</em>하세요.');
+  }
+  window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();dp=e;go.hidden=false;if(box.hidden)show('📲 홈 화면에 설치하면 앱처럼 써요','아래 버튼을 눌러 설치하세요.')});
+  go.onclick=async()=>{if(!dp)return;dp.prompt();try{await dp.userChoice}catch(e){}dp=null;go.hidden=true};
+  window.addEventListener('appinstalled',()=>{box.hidden=true});
+  $('instX').onclick=()=>{box.hidden=true;try{localStorage.setItem(KEYI,String(Date.now()))}catch(e){}};
+})();
 
 fillInput();renderAll();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
